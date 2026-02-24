@@ -1,4 +1,4 @@
-#Mini E-Commerce
+# Mini E-Commerce
 
 Built a Spring Boot RESTful service for product management (view, order, add).
 
