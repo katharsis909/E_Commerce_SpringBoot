@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>E-commerce search</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <main class="page">
+    <section class="search-card" aria-labelledby="search-heading">
+      <p class="eyebrow">PRODUCT CATALOGUE</p>
+      <h1 id="search-heading">Find a product</h1>
+      <p class="hint">Suggestions appear 250 ms after you pause typing.</p>
+
+      <div class="search-box">
+        <label class="sr-only" for="product-search">Search products</label>
+        <input id="product-search" type="search" autocomplete="off"
+               placeholder="Try keyboard, phone, shoes…"
+               aria-controls="suggestion-list" aria-expanded="false"
+               aria-autocomplete="list">
+        <span id="search-status" class="status" aria-live="polite"></span>
+        <ul id="suggestion-list" class="suggestions" role="listbox"></ul>
+      </div>
+    </section>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>

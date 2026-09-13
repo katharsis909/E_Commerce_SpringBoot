@@ -1,0 +1,16 @@
+:root { color-scheme: light; font-family: Inter, ui-sans-serif, system-ui, sans-serif; color: #152238; background: #f3f6fb; }
+* { box-sizing: border-box; }
+body { margin: 0; min-height: 100vh; display: grid; place-items: center; }
+.page { width: min(100% - 2rem, 680px); }
+.search-card { padding: clamp(1.8rem, 6vw, 3.8rem); background: white; border-radius: 24px; box-shadow: 0 18px 54px #1d355714; }
+.eyebrow { margin: 0; color: #3c6df0; font-size: .73rem; font-weight: 800; letter-spacing: .13em; }
+h1 { margin: .5rem 0; font-size: clamp(2rem, 7vw, 3.4rem); letter-spacing: -.06em; }
+.hint { margin: 0 0 1.6rem; color: #61708a; }
+.search-box { position: relative; }
+input { width: 100%; padding: 1rem 1.1rem; border: 2px solid #dce4f2; border-radius: 13px; color: inherit; font: inherit; outline: none; }
+input:focus { border-color: #3c6df0; box-shadow: 0 0 0 4px #3c6df022; }
+.status { display: block; min-height: 1.3rem; padding: .55rem .15rem; color: #61708a; font-size: .86rem; }
+.suggestions { position: absolute; z-index: 1; top: calc(100% + 2.2rem); width: 100%; margin: 0; padding: .35rem; list-style: none; border: 1px solid #dce4f2; border-radius: 13px; background: #fff; box-shadow: 0 14px 34px #1d35571c; }
+.suggestion { padding: .8rem .9rem; border-radius: 9px; cursor: pointer; }
+.suggestion:hover { background: #edf3ff; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); }
