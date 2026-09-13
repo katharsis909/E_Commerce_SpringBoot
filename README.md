@@ -80,6 +80,17 @@ java -jar target/ecommerce-router-0.0.1-SNAPSHOT.jar \
 
 Open [http://localhost:8080/](http://localhost:8080/) for the search UI.
 
+## Frontend files
+
+The frontend is served directly by Spring Boot from `src/main/resources/static/`:
+
+- [index.html](src/main/resources/static/index.html) — search page markup.
+- [app.js](src/main/resources/static/app.js) — 250 ms debounce, request
+  cancellation, and version checks for stale autocomplete responses.
+- [app.css](src/main/resources/static/app.css) — search and dropdown styling.
+
+There is no separate Node/React frontend project or build step.
+
 ## Main endpoints
 
 | Method | Endpoint | Purpose |
