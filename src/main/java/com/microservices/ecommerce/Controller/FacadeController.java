@@ -120,8 +120,8 @@ public class FacadeController {
 
     @GetMapping("/search/autocomplete/{prefix}")
     public ResponseEntity<List<AutocompleteSuggestion>> autocomplete(@PathVariable String prefix) {
-        List<AutocompleteSuggestion> suggestions = trieShardRouter.search(prefix);
-        if (suggestions.isEmpty()) {
+        List<AutocompleteSuggestion> suggestions = trieShardRouter.searchWithFuzzyFallback(prefix);
+        if (suggestions == null || suggestions.isEmpty()) {
             return ResponseEntity.noContent().build();
         }
         return ResponseEntity.ok(suggestions);

@@ -13,6 +13,7 @@ public class TrieShardController {
     @PutMapping("/products") public void index(@RequestBody ProductIndexEntry product) { trie.indexProduct(product); }
     @PostMapping("/record/{prefix}") public void record(@PathVariable String prefix) { trie.recordSearch(prefix); }
     @PostMapping("/search/{prefix}") public List<AutocompleteSuggestion> search(@PathVariable String prefix) { return trie.search(prefix); }
+    @PostMapping("/fuzzy-search/{prefix}") public List<AutocompleteSuggestion> fuzzySearch(@PathVariable String prefix, @RequestParam(defaultValue = "1") int maxDistance) { return trie.fuzzySearch(prefix, maxDistance); }
     @GetMapping("/top-prefixes") public List<String> topPrefixes() { return trie.topPrefixes(); }
     @PutMapping("/suggestions") public void suggestions(@RequestBody List<PrefixSuggestionsUpdate> updates) { trie.replaceSuggestions(updates); }
 }

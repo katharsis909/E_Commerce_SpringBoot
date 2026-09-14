@@ -1,6 +1,6 @@
 # E-Commerce Spring Boot Router
 
-This repository is an e-commerce catalogue and order API router. It persists catalogue data in H2, protects write operations with JWT-based buyer and seller roles, and routes autocomplete work to separate in-memory trie-shard processes.
+This repository is an e-commerce catalogue and order API router. It persists catalogue data in MySQL, protects write operations with JWT-based buyer and seller roles, and routes autocomplete work to separate in-memory trie-shard processes.
 
 Read this guide from top to bottom to understand the project at its current point in development.
 
@@ -13,8 +13,8 @@ HTTP client
    |       +--> JWT request filter (when an Authorization header is supplied)
    |
    +--> Controllers
-   |       +--> Facade service ---> Product service ---> Products repository ---> H2 product table
-   |       |                    +-> Order service -----> Order repository -----> H2 orders table
+   |       +--> Facade service ---> Product service ---> Products repository ---> MySQL product table
+   |       |                    +-> Order service -----> Order repository -----> MySQL orders table
    |       |
    |       +--> Login controller ---> Authentication manager ---> in-memory users
    |
@@ -97,7 +97,6 @@ Unless noted, protected calls need `Authorization: Bearer <JWT>`.
 | `GET` | `/search/trie/{prefix}?page=0&size=20` | Public | Case-insensitive prefix search of product names |
 | `GET` | `/search/autocomplete/{prefix}` | Public | Return up to eight in-memory product suggestions |
 | `GET` | `/test/200` | Public | Basic controller smoke endpoint |
-| `GET` | `/h2-console` | Public | H2 browser for local development |
 
 Example login:
 
@@ -147,8 +146,18 @@ src/main/java/com/microservices/ecommerce/
 The autocomplete endpoint routes to a separate in-memory trie shard based on
 the first letter of the normalized prefix. Each shard records sampled prefix
 frequency; only its weekly selected top 10,000 nodes hold up to eight product
-suggestions. The full design, shard startup commands, and deferred work are in
-[`docs/search-autocomplete-design.md`](docs/search-autocomplete-design.md).
+suggestions. Product additions also immediately register product suggestions along
+their prefix path.
+
+The system features Damerau-Levenshtein fuzzy prefix search:
+- Exact prefix search runs first (distance 0).
+- If exact search returns no matches:
+  - Queries shorter than 5 characters do not trigger fuzzy search.
+  - Queries of length 5–8 allow edit distance 1.
+  - Queries of length $\ge$ 9 allow edit distance 2.
+- Traverses the trie carrying dynamic programming distance rows with adjacent character swap support (`iphnoe` -> `iphone`) and early branch pruning.
+- If the primary shard returns empty, the router queries remaining shards to capture initial-character typos/swaps.
+- The full design, shard startup commands, and algorithms are in [`docs/search-autocomplete-design.md`](docs/search-autocomplete-design.md).
 
 The router also serves a no-build frontend at `/`. It waits 250 ms after the
 latest keystroke, cancels the prior request when possible, and uses a strictly
@@ -157,9 +166,9 @@ increasing client-side version to ignore an older response that arrives late.
 
 ## 6. Data and configuration
 
-`src/main/resources/application.properties` configures a file-backed H2 database at `./data/testdb`. Hibernate uses `ddl-auto=update`, so it creates or adjusts tables based on the entities. The H2 console is enabled at `/h2-console`.
+`src/main/resources/application.properties` configures a MySQL database with defaults connecting to `jdbc:mysql://localhost:3306/ecommerce`. Connection parameters can be overridden via `MYSQL_HOST`, `MYSQL_PORT`, `MYSQL_DATABASE`, `MYSQL_USER`, and `MYSQL_PASSWORD` environment variables. Hibernate uses `ddl-auto=update`, automatically creating or updating tables based on entity definitions.
 
-The data files under `data/` are local runtime state. They are not a schema migration mechanism.
+For automated test suites and continuous integration, `src/test/resources/application.properties` provides an isolated in-memory H2 database profile.
 
 ## 7. Running and testing
 

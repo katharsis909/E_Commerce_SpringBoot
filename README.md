@@ -11,9 +11,12 @@ first normalized character.
 
 - Product creation, lookup, prefix search, and orders.
 - JWT-based buyer and seller authorization.
-- H2-backed catalogue and order data.
+- MySQL-backed catalogue and order data (configurable via environment variables).
 - Optimistic locking on products.
 - In-memory autocomplete trie split into fixed first-letter shards.
+- Damerau-Levenshtein fuzzy prefix search with adjacent character swap support (`iphnoe` → `iphone`).
+- Dynamic DP distance-row trie traversal with early branch pruning.
+- Adaptive typo tolerance thresholds: exact-first, distance 1 for query length $\ge$ 5, distance 2 for query length $\ge$ 9.
 - 1-in-1,000 server-side search sampling for estimated prefix popularity.
 - Weekly best-first/max-heap selection of the top 10,000 prefixes per shard.
 - Up to eight product suggestions stored only for selected popular trie nodes.
@@ -25,7 +28,7 @@ first normalized character.
 ```text
 Browser
   -> E-commerce router :8080
-       -> catalogue/orders in H2
+       -> catalogue/orders in MySQL
        -> trie shard selected by prefix first letter
 
 Trie shards :8091 .. :8096
@@ -50,7 +53,16 @@ replicas, node-failure recovery, persistence of trie data, or rebalancing.
 
 ## Run locally
 
-Requirements: Java 17.
+Requirements: Java 17 and a running MySQL instance (default: `localhost:3306/ecommerce`, credentials `root`/`root`).
+
+Start MySQL with Docker (optional):
+
+```bash
+docker run -d --name ecommerce-mysql -p 3306:3306 \
+  -e MYSQL_ROOT_PASSWORD=root -e MYSQL_DATABASE=ecommerce mysql:8
+```
+
+You can customize the connection using environment variables: `MYSQL_HOST`, `MYSQL_PORT`, `MYSQL_DATABASE`, `MYSQL_USER`, `MYSQL_PASSWORD`.
 
 Build the project:
 
@@ -64,8 +76,7 @@ Start all trie shards first. For example, shard `A`:
 java -jar target/ecommerce-router-0.0.1-SNAPSHOT.jar \
   --server.port=8091 \
   --app.role=trie-shard \
-  --app.trie-shard=A \
-  --spring.datasource.url=jdbc:h2:mem:trie-a
+  --app.trie-shard=A
 ```
 
 Start the other shards with ports 8092–8096 and shard names `S`, `CP`, `BMT`,

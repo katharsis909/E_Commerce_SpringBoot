@@ -60,12 +60,10 @@ public class SecurityConfig
                 /signin/"**"/verify, shows "**" -> is a kind of regular expression/
                  */
                 .requestMatchers("/view/product/**").permitAll()
-                                .requestMatchers("/search/**").permitAll()
-                .requestMatchers("/h2-console/**").permitAll()
+                .requestMatchers("/search/**").permitAll()
                 .requestMatchers("/order/**").hasRole("buyer")
-                                .requestMatchers("/test/**").permitAll()
+                .requestMatchers("/test/**").permitAll()
                 .requestMatchers("/add/product/**").hasRole("seller")
-                //h2-console/** allows both /h2-console & /h2-console/
                 //only for testing
                 // .anyRequest().permitAll()
                 )

@@ -30,7 +30,29 @@ public class AutocompleteService {
     public synchronized void indexProduct(ProductIndexEntry product) {
         String name = normalize(product.name());
         if (name.isEmpty() || !owns(name)) return;
-        for (int length = 1; length <= name.length(); length++) ensureNode(name.substring(0, length));
+        AutocompleteSuggestion suggestion = new AutocompleteSuggestion(product.productId(), product.name());
+        for (int length = 1; length <= name.length(); length++) {
+            MemoryNode node = ensureNode(name.substring(0, length));
+            addSuggestion(node, suggestion);
+        }
+    }
+
+    private void addSuggestion(MemoryNode node, AutocompleteSuggestion suggestion) {
+        if (node.suggestions.isEmpty()) {
+            node.suggestions = new ArrayList<>();
+        } else if (!(node.suggestions instanceof ArrayList)) {
+            node.suggestions = new ArrayList<>(node.suggestions);
+        }
+        boolean exists = false;
+        for (AutocompleteSuggestion s : node.suggestions) {
+            if (s.productId() == suggestion.productId()) {
+                exists = true;
+                break;
+            }
+        }
+        if (!exists && node.suggestions.size() < suggestionsPerPrefix) {
+            node.suggestions.add(suggestion);
+        }
     }
 
     public synchronized void recordSearch(String rawPrefix) {
@@ -44,6 +66,92 @@ public class AutocompleteService {
         recordSearch(prefix);
         MemoryNode node = nodesByPrefix.get(prefix);
         return node == null ? List.of() : List.copyOf(node.suggestions);
+    }
+
+    public synchronized List<AutocompleteSuggestion> fuzzySearch(String rawPrefix, int maxDistance) {
+        String query = normalize(rawPrefix);
+        if (query.isEmpty() || maxDistance < 1) return List.of();
+
+        int m = query.length();
+        int[] initialRow = new int[m + 1];
+        for (int j = 0; j <= m; j++) {
+            initialRow[j] = j;
+        }
+
+        Map<Long, ScoredSuggestion> bestSuggestions = new HashMap<>();
+
+        for (Map.Entry<Character, MemoryNode> entry : root.children.entrySet()) {
+            char edgeChar = entry.getKey();
+            MemoryNode child = entry.getValue();
+            dfsFuzzy(child, edgeChar, '\0', initialRow, null, query, m, maxDistance, bestSuggestions);
+        }
+
+        return bestSuggestions.values().stream()
+                .sorted(Comparator.comparingInt(ScoredSuggestion::distance)
+                        .thenComparing(Comparator.comparingLong(ScoredSuggestion::frequency).reversed())
+                        .thenComparing(s -> s.suggestion().name()))
+                .map(ScoredSuggestion::suggestion)
+                .limit(suggestionsPerPrefix)
+                .toList();
+    }
+
+    private void dfsFuzzy(MemoryNode node,
+                          char currentChar,
+                          char prevChar,
+                          int[] prevRow,
+                          int[] prevPrevRow,
+                          String query,
+                          int m,
+                          int maxDistance,
+                          Map<Long, ScoredSuggestion> bestSuggestions) {
+        int[] currentRow = new int[m + 1];
+        currentRow[0] = prevRow[0] + 1;
+        int rowMin = currentRow[0];
+
+        for (int j = 1; j <= m; j++) {
+            char queryChar = query.charAt(j - 1);
+            int cost = (queryChar == currentChar) ? 0 : 1;
+            int insert = currentRow[j - 1] + 1;
+            int delete = prevRow[j] + 1;
+            int replace = prevRow[j - 1] + cost;
+            int minVal = Math.min(insert, Math.min(delete, replace));
+
+            // Damerau-Levenshtein adjacent transposition
+            if (prevPrevRow != null && j > 1) {
+                char prevQueryChar = query.charAt(j - 2);
+                if (currentChar == prevQueryChar && prevChar == queryChar) {
+                    int transpose = prevPrevRow[j - 2] + 1;
+                    minVal = Math.min(minVal, transpose);
+                }
+            }
+            currentRow[j] = minVal;
+            if (minVal < rowMin) {
+                rowMin = minVal;
+            }
+        }
+
+        // Branch pruning: if every value in the current DP row exceeds maxDistance,
+        // no child in this subtree can ever achieve edit distance <= maxDistance.
+        if (rowMin > maxDistance) {
+            return;
+        }
+
+        // Match condition: edit distance between query and this node's prefix <= maxDistance
+        int editDistance = currentRow[m];
+        if (editDistance <= maxDistance && !node.suggestions.isEmpty()) {
+            for (AutocompleteSuggestion s : node.suggestions) {
+                ScoredSuggestion existing = bestSuggestions.get(s.productId());
+                if (existing == null || editDistance < existing.distance() ||
+                        (editDistance == existing.distance() && node.frequency > existing.frequency())) {
+                    bestSuggestions.put(s.productId(), new ScoredSuggestion(s, editDistance, node.frequency));
+                }
+            }
+        }
+
+        // Traverse children carrying the previous two rows and character history
+        for (Map.Entry<Character, MemoryNode> entry : node.children.entrySet()) {
+            dfsFuzzy(entry.getValue(), entry.getKey(), currentChar, currentRow, prevRow, query, m, maxDistance, bestSuggestions);
+        }
     }
 
     public synchronized List<String> topPrefixes() {
@@ -80,7 +188,10 @@ public class AutocompleteService {
         }
         return parent;
     }
-    static String normalize(String value) { return value == null ? "" : value.trim().replaceAll("\\s+", " ").toLowerCase(Locale.ROOT); }
+    public static String normalize(String value) { return value == null ? "" : value.trim().replaceAll("\\s+", " ").toLowerCase(Locale.ROOT); }
+
+    private record ScoredSuggestion(AutocompleteSuggestion suggestion, int distance, long frequency) {}
+
     private static final class MemoryNode {
         private final String prefix; private long frequency; private List<AutocompleteSuggestion> suggestions = List.of();
         private final Map<Character, MemoryNode> children = new HashMap<>();

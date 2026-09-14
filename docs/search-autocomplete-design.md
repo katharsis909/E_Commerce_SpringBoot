@@ -22,18 +22,33 @@ hold up to eight product suggestions (product ID and product name). For
 example, adding the product `Keyboard` creates the nodes `k`, `ke`, `key`, and
 so on, but does not populate a suggestion list for every one of them. Newly
 created products are also inserted into the trie immediately. The autocomplete
-read path is then entirely in memory:
+read path is entirely in memory:
 
 ```text
 GET /search/autocomplete/{prefix}
   -> normalize prefix
-  -> trie lookup
-  -> return the node's up to eight suggestions
+  -> 1. Exact prefix trie lookup (distance 0)
+  -> 2. If exact results found: return suggestions
+  -> 3. If exact returns empty:
+       -> check length: if length < 5: return empty
+       -> if 5 <= length < 9: maxDistance = 1
+       -> if length >= 9: maxDistance = 2
+       -> execute Damerau-Levenshtein trie traversal on primary shard
+       -> if empty: broadcast to other shards (catches initial letter swaps)
+       -> return ranked suggestions (exact > dist 1 > dist 2)
 ```
 
 Trie state and frequency data are intentionally lost when a shard restarts. A
 router restart re-indexes the catalogue into the running shards. No `trie_node`
 table or `prefix_suggestion` table exists in this version.
+
+## Damerau-Levenshtein Trie Traversal
+
+Fuzzy search uses a dynamic programming row vector passed down the trie during depth-first search:
+- **State carried**: `currentRow`, parent's `prevRow`, and grandparent's `prevPrevRow` plus edge character history (`currentChar`, `prevChar`).
+- **Adjacent Transposition**: Detects adjacent character swaps `c == prevQueryChar && prevChar == queryChar` and costs them as 1 edit (`iphnoe` -> `iphone`), unlike standard Levenshtein which costs 2 edits.
+- **Subtree Pruning**: At each node, if `min(currentRow) > maxDistance`, the entire subtree is pruned immediately because distance cannot decrease deeper down the branch.
+- **Suggestion Ranking**: Suggestions are ranked by edit distance ascending (distance 1 before distance 2), followed by node popularity frequency descending, and product name ascending.
 
 ## Search popularity and weekly refresh
 
@@ -68,8 +83,7 @@ catalogue. Start all six shards before the router. Example for shard A:
 
 ```bash
 java -jar target/ecommerce-router-0.0.1-SNAPSHOT.jar \
-  --server.port=8091 --app.role=trie-shard --app.trie-shard=A \
-  --spring.datasource.url=jdbc:h2:mem:trie-a
+  --server.port=8091 --app.role=trie-shard --app.trie-shard=A
 ```
 
 Repeat with `S`, `CP`, `BMT`, `COMMON`, and `RARE` on ports 8092 through 8096.
