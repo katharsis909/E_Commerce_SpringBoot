@@ -17,6 +17,10 @@ first normalized character.
 - Damerau-Levenshtein fuzzy prefix search with adjacent character swap support (`iphnoe` → `iphone`).
 - Dynamic DP distance-row trie traversal with early branch pruning.
 - Adaptive typo tolerance thresholds: exact-first, distance 1 for query length $\ge$ 5, distance 2 for query length $\ge$ 9.
+- Product meta-tagging with relational division search (`tags` table indexed on `(name, product_id)`).
+- 4-Tier unified search fallback: Exact Name Prefix $\rightarrow$ Fuzzy Name Prefix $\rightarrow$ Exact Tags $\rightarrow$ Fuzzy Tags (distance $\le$ 1).
+- Dual-rating binning: continuous `rating` and indexed discrete `approxRating` (0.0–5.0 in 0.5 steps) to minimize B-tree index churn.
+- Seller-only single and batch tag management (`/tags/**`).
 - 1-in-1,000 server-side search sampling for estimated prefix popularity.
 - Weekly best-first/max-heap selection of the top 10,000 prefixes per shard.
 - Up to eight product suggestions stored only for selected popular trie nodes.
@@ -110,8 +114,11 @@ There is no separate Node/React frontend project or build step.
 | `POST` | `/add/product` | Add a product; seller role required |
 | `GET` | `/view/product/{name}` | View a product |
 | `POST` | `/order/product/{name}` | Place an order; buyer role required |
+| `POST` | `/tags/{productId}/add?tag={name}` | Add a single tag to a product; seller role required |
+| `POST` | `/tags/{productId}/upload` | Batch upload multiple tags to a product; seller role required |
+| `GET` | `/tags/{productId}` | List tags for a product |
 | `GET` | `/search/trie/{prefix}` | Catalogue prefix search |
-| `GET` | `/search/autocomplete/{prefix}` | Router-backed autocomplete suggestions |
+| `GET` | `/search/autocomplete/{prefix}` | 4-Tier unified search (exact/fuzzy prefix, exact/fuzzy tags) |
 
 For the detailed autocomplete design and future work, see
 [docs/search-autocomplete-design.md](docs/search-autocomplete-design.md).

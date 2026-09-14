@@ -6,6 +6,7 @@ import com.microservices.ecommerce.Projections.ProductNameProjection;
 import com.microservices.ecommerce.Service.FacadeService;
 import com.microservices.ecommerce.Service.OrderService;
 import com.microservices.ecommerce.Service.ProductService;
+import com.microservices.ecommerce.Service.TagService;
 import com.microservices.ecommerce.Autocomplete.AutocompleteSuggestion;
 import com.microservices.ecommerce.Autocomplete.ProductIndexEntry;
 import com.microservices.ecommerce.Autocomplete.TrieShardRouter;
@@ -32,14 +33,16 @@ public class FacadeController {
     private ProductService productService;
     private FacadeService facadeService;
     private TrieShardRouter trieShardRouter;
+    private TagService tagService;
 
     @Autowired
     public FacadeController(OrderService orderService, ProductService productService, FacadeService facadeService,
-                            TrieShardRouter trieShardRouter) {
+                            TrieShardRouter trieShardRouter, TagService tagService) {
         this.orderService = orderService;
         this.productService = productService;
         this.facadeService = facadeService;
         this.trieShardRouter = trieShardRouter;
+        this.tagService = tagService;
     }
 
     @GetMapping("/view/product/{name}")
@@ -120,11 +123,25 @@ public class FacadeController {
 
     @GetMapping("/search/autocomplete/{prefix}")
     public ResponseEntity<List<AutocompleteSuggestion>> autocomplete(@PathVariable String prefix) {
+        // Tier 1 & 2: Exact product name prefix, followed by fuzzy product name prefix (Damerau-Levenshtein)
         List<AutocompleteSuggestion> suggestions = trieShardRouter.searchWithFuzzyFallback(prefix);
-        if (suggestions == null || suggestions.isEmpty()) {
-            return ResponseEntity.noContent().build();
+        if (suggestions != null && !suggestions.isEmpty()) {
+            return ResponseEntity.ok(suggestions);
         }
-        return ResponseEntity.ok(suggestions);
+
+        // Tier 3: Search by exact tags (relational division via SQL)
+        List<AutocompleteSuggestion> tagSuggestions = tagService.searchProductsByTags(List.of(prefix));
+        if (tagSuggestions != null && !tagSuggestions.isEmpty()) {
+            return ResponseEntity.ok(tagSuggestions);
+        }
+
+        // Tier 4: Search by fuzzy tag (Damerau-Levenshtein distance <= 1 on tag name)
+        List<AutocompleteSuggestion> fuzzyTagSuggestions = tagService.fuzzySearchByTag(prefix, 1);
+        if (fuzzyTagSuggestions != null && !fuzzyTagSuggestions.isEmpty()) {
+            return ResponseEntity.ok(fuzzyTagSuggestions);
+        }
+
+        return ResponseEntity.noContent().build();
     }
 
 }

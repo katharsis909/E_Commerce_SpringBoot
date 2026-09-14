@@ -93,9 +93,12 @@ Unless noted, protected calls need `Authorization: Bearer <JWT>`.
 | `GET` | `/view/product/{name}` | Public | Get a product with HATEOAS `self` and `order` links |
 | `POST` | `/add/product` | Seller | Create a product |
 | `POST` | `/order/product/{name}` | Buyer | Decrement stock and create an order |
+| `POST` | `/tags/{productId}/add?tag={name}` | Seller | Add a single tag to a product |
+| `POST` | `/tags/{productId}/upload` | Seller | Batch upload tags to a product |
+| `GET` | `/tags/{productId}` | Seller | List tags for a product |
 | `GET` | `/search/all?page=0&size=20` | Public | Page through product-name projections |
 | `GET` | `/search/trie/{prefix}?page=0&size=20` | Public | Case-insensitive prefix search of product names |
-| `GET` | `/search/autocomplete/{prefix}` | Public | Return up to eight in-memory product suggestions |
+| `GET` | `/search/autocomplete/{prefix}` | Public | 4-Tier unified search (exact/fuzzy prefix, exact/fuzzy tags) |
 | `GET` | `/test/200` | Public | Basic controller smoke endpoint |
 
 Example login:
@@ -149,15 +152,19 @@ frequency; only its weekly selected top 10,000 nodes hold up to eight product
 suggestions. Product additions also immediately register product suggestions along
 their prefix path.
 
-The system features Damerau-Levenshtein fuzzy prefix search:
-- Exact prefix search runs first (distance 0).
-- If exact search returns no matches:
-  - Queries shorter than 5 characters do not trigger fuzzy search.
-  - Queries of length 5–8 allow edit distance 1.
-  - Queries of length $\ge$ 9 allow edit distance 2.
-- Traverses the trie carrying dynamic programming distance rows with adjacent character swap support (`iphnoe` -> `iphone`) and early branch pruning.
-- If the primary shard returns empty, the router queries remaining shards to capture initial-character typos/swaps.
-- The full design, shard startup commands, and algorithms are in [`docs/search-autocomplete-design.md`](docs/search-autocomplete-design.md).
+The search bar endpoint (`/search/autocomplete/{prefix}`) runs a 4-tier search pipeline:
+1. **Exact prefix search** on product names (distance 0).
+2. **Fuzzy prefix search** on product names using Damerau-Levenshtein distance (distance 1 for query length 5–8, distance 2 for length $\ge$ 9; handles adjacent transpositions like `iphnoe` -> `iphone`).
+3. **Exact meta-tag search** using relational division SQL (`WHERE t.name IN :tags HAVING COUNT(DISTINCT t.name) = :count ORDER BY p.approxRating DESC`).
+4. **Fuzzy meta-tag search** allowing Damerau-Levenshtein distance $\le$ 1 on tag names.
+
+### Dual Rating & Binned Indexing
+To prevent database B-tree index rebalancing on every review decimal change:
+- `rating`: continuous exact average rating.
+- `approxRating`: discrete rating rounded to the nearest multiple of 0.5 in range [0.0, 5.0] (11 buckets).
+- An index is placed on `approx_rating`. All search queries sort by `ORDER BY p.approxRating DESC, p.name ASC`.
+
+The full design, shard startup commands, and algorithms are in [`docs/search-autocomplete-design.md`](docs/search-autocomplete-design.md).
 
 The router also serves a no-build frontend at `/`. It waits 250 ms after the
 latest keystroke, cancels the prior request when possible, and uses a strictly

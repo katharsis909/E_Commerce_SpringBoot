@@ -64,6 +64,7 @@ public class SecurityConfig
                 .requestMatchers("/order/**").hasRole("buyer")
                 .requestMatchers("/test/**").permitAll()
                 .requestMatchers("/add/product/**").hasRole("seller")
+                .requestMatchers("/tags/**").hasRole("seller")
                 //only for testing
                 // .anyRequest().permitAll()
                 )

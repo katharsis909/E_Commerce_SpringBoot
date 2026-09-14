@@ -27,15 +27,24 @@ read path is entirely in memory:
 ```text
 GET /search/autocomplete/{prefix}
   -> normalize prefix
-  -> 1. Exact prefix trie lookup (distance 0)
-  -> 2. If exact results found: return suggestions
-  -> 3. If exact returns empty:
-       -> check length: if length < 5: return empty
-       -> if 5 <= length < 9: maxDistance = 1
-       -> if length >= 9: maxDistance = 2
-       -> execute Damerau-Levenshtein trie traversal on primary shard
-       -> if empty: broadcast to other shards (catches initial letter swaps)
-       -> return ranked suggestions (exact > dist 1 > dist 2)
+  -> Tier 1: Exact prefix trie lookup (distance 0)
+       -> If found: return suggestions immediately
+  -> Tier 2: Fuzzy prefix trie lookup (Damerau-Levenshtein)
+       -> If length < 5: skip fuzzy prefix
+       -> If 5 <= length < 9: maxDistance = 1
+       -> If length >= 9: maxDistance = 2
+       -> Primary shard trie traversal (broadcasts if initial swap)
+       -> If found: return suggestions
+  -> Tier 3: Exact Meta-Tag Relational Division Search (SQL)
+       -> Matches product tags via:
+            WHERE t.name IN :tags HAVING COUNT(DISTINCT t.name) = :count
+            ORDER BY p.approxRating DESC, p.name ASC
+       -> If found: return suggestions
+  -> Tier 4: Fuzzy Meta-Tag Search (Edit Distance 1)
+       -> Finds candidate tags with Damerau-Levenshtein distance <= 1
+       -> Executes relational division query on matched tags
+       -> If found: return suggestions
+  -> If all tiers empty: return 204 No Content
 ```
 
 Trie state and frequency data are intentionally lost when a shard restarts. A
