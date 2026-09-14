@@ -1,10 +1,12 @@
 package com.microservices.ecommerce.Controller;
 
-import com.microservices.ecommerce.Projections.ProductNameProjection;
 import com.microservices.ecommerce.Model.Product;
-import com.microservices.ecommerce.Projections.ProductNameProjection;
+import com.microservices.ecommerce.Model.Tag;
+import com.microservices.ecommerce.RequestModels.ProductDetailDTO;
+import com.microservices.ecommerce.RequestModels.ProductPageItemDTO;
 import com.microservices.ecommerce.Service.FacadeService;
 import com.microservices.ecommerce.Service.OrderService;
+import com.microservices.ecommerce.Service.PhotoService;
 import com.microservices.ecommerce.Service.ProductService;
 import com.microservices.ecommerce.Service.TagService;
 import com.microservices.ecommerce.Autocomplete.AutocompleteSuggestion;
@@ -16,10 +18,12 @@ import org.springframework.data.domain.*;
 import org.springframework.hateoas.EntityModel;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.net.URI;
 import java.util.List;
+import java.util.Map;
 
 import static org.springframework.hateoas.server.mvc.WebMvcLinkBuilder.linkTo;
 import static org.springframework.hateoas.server.mvc.WebMvcLinkBuilder.methodOn;
@@ -29,28 +33,45 @@ import static org.springframework.hateoas.server.mvc.WebMvcLinkBuilder.methodOn;
 //@RequestMapping
 public class FacadeController {
 
-    private OrderService orderService;
-    private ProductService productService;
-    private FacadeService facadeService;
-    private TrieShardRouter trieShardRouter;
-    private TagService tagService;
+    private final OrderService orderService;
+    private final ProductService productService;
+    private final FacadeService facadeService;
+    private final TrieShardRouter trieShardRouter;
+    private final TagService tagService;
+    private final PhotoService photoService;
 
     @Autowired
     public FacadeController(OrderService orderService, ProductService productService, FacadeService facadeService,
-                            TrieShardRouter trieShardRouter, TagService tagService) {
+                            TrieShardRouter trieShardRouter, TagService tagService, PhotoService photoService) {
         this.orderService = orderService;
         this.productService = productService;
         this.facadeService = facadeService;
         this.trieShardRouter = trieShardRouter;
         this.tagService = tagService;
+        this.photoService = photoService;
     }
 
     @GetMapping("/view/product/{name}")
     public ResponseEntity<?> viewProduct(@PathVariable String name) {
         return productService.findProductByName(name)
                 .map(product -> {
+                    List<String> tags = tagService.getTagsForProduct(product.getId())
+                            .stream().map(Tag::getName).toList();
+                    String highResImage = photoService.getMainHighResBase64(product.getId());
+
+                    ProductDetailDTO detailDTO = new ProductDetailDTO(
+                            product.getId(),
+                            product.getName(),
+                            product.getPrice(),
+                            product.getStock(),
+                            product.getRating(),
+                            product.getApproxRating(),
+                            tags,
+                            highResImage
+                    );
+
                     //ye define krna prta hai HATEOAS me
-                    EntityModel<Product> resource = EntityModel.of(product);
+                    EntityModel<ProductDetailDTO> resource = EntityModel.of(detailDTO);
 
                     // link to self - IDK why needed
                     resource.add(linkTo(methodOn(FacadeController.class).viewProduct(name))
@@ -79,12 +100,18 @@ public class FacadeController {
     }
 
     @PostMapping("/add/product")
-    public ResponseEntity<String> addProduct(@RequestBody Product product)
+    public ResponseEntity<String> addProduct(@RequestBody Product product, Authentication authentication)
     {
         if(facadeService.addProduct(product)) {
             trieShardRouter.index(new ProductIndexEntry(product.getId(), product.getName()));
-            // Create resource URI: view/product/{name}
-            URI location = URI.create("view/product/" + product.getName());
+            if (authentication != null && authentication.getName() != null) {
+                photoService.linkSellerToProduct(authentication.getName(), product);
+            }
+            // Create resource URI: /view/product/{name}
+            URI location = org.springframework.web.util.UriComponentsBuilder.fromPath("/view/product/{name}")
+                    .buildAndExpand(product.getName())
+                    .encode()
+                    .toUri();
             return ResponseEntity.created(location).build();
             //created is Status code 201
             //location is header
@@ -103,22 +130,42 @@ public class FacadeController {
     - Parameters are not resources
 
      */
-    public ResponseEntity<Page<ProductNameProjection>> getAllProductNames(Pageable pageable) {
-        Page<ProductNameProjection> productNames = productService.findAllProductNames(pageable);
-        if (productNames.isEmpty()) {
+    public ResponseEntity<Page<ProductPageItemDTO>> getAllProductNames(Pageable pageable) {
+        Page<Product> products = productService.findAllProducts(pageable);
+        if (products.isEmpty()) {
             return ResponseEntity.noContent().build();
         }
-        return ResponseEntity.ok(productNames);
+        List<Long> productIds = products.getContent().stream().map(Product::getId).toList();
+        Map<Long, String> lowResMap = photoService.getLowResBase64Map(productIds);
+
+        Page<ProductPageItemDTO> pageItems = products.map(p -> new ProductPageItemDTO(
+                p.getId(),
+                p.getName(),
+                p.getPrice(),
+                p.getApproxRating(),
+                lowResMap.get(p.getId())
+        ));
+        return ResponseEntity.ok(pageItems);
     }
 
     @GetMapping("/search/trie/{prefix}")
-    public ResponseEntity<Page<ProductNameProjection>> trieSearch(Pageable pageable, @PathVariable String prefix) {
+    public ResponseEntity<Page<ProductPageItemDTO>> trieSearch(Pageable pageable, @PathVariable String prefix) {
         trieShardRouter.record(prefix);
-        Page<ProductNameProjection> productNames = productService.trieSearch(prefix,pageable);
-        if (productNames.isEmpty()) {
+        Page<Product> products = productService.findProductsStartingWith(prefix, pageable);
+        if (products.isEmpty()) {
             return ResponseEntity.noContent().build();
         }
-        return ResponseEntity.ok(productNames);
+        List<Long> productIds = products.getContent().stream().map(Product::getId).toList();
+        Map<Long, String> lowResMap = photoService.getLowResBase64Map(productIds);
+
+        Page<ProductPageItemDTO> pageItems = products.map(p -> new ProductPageItemDTO(
+                p.getId(),
+                p.getName(),
+                p.getPrice(),
+                p.getApproxRating(),
+                lowResMap.get(p.getId())
+        ));
+        return ResponseEntity.ok(pageItems);
     }
 
     @GetMapping("/search/autocomplete/{prefix}")

@@ -54,8 +54,16 @@ public class ProductService {
         return productsRepository.findByNameStartingWith(prefix,pageable);
     }
 
+    public Page<Product> findProductsStartingWith(String prefix, Pageable pageable) {
+        return productsRepository.findProductsByNameStartingWith(prefix, pageable);
+    }
+
     public Page<ProductNameProjection> findAllProductNames(Pageable pageable) {
         return productsRepository.findAllBy(pageable);
+    }
+
+    public Page<Product> findAllProducts(Pageable pageable) {
+        return productsRepository.findAll(pageable);
     }
 
     public List<Product> allProductsByName() {

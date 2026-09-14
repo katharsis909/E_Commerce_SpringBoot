@@ -27,11 +27,12 @@ The entry point is `ECommerceApplication`. It enables normal Spring Boot auto-co
 
 ### Catalogue
 
-Products use a generated immutable numeric `id` as the primary key. Their `name` is a required, unique business field and can be changed without changing their identity. Products also have `price`, `stock`, and JPA optimistic-lock `version` fields.
+Products use a generated immutable numeric `id` as the primary key. Their `name` is a required, unique business field and can be changed without changing their identity. Products also have `price`, `stock`, `rating`, `approxRating`, and JPA optimistic-lock `version` fields.
 
-- Sellers can create products.
-- Anyone can view one product by name.
-- Anyone can page through product names or search them case-insensitively by prefix.
+- Sellers can create products (automatically recorded in `seller_products`).
+- Owning sellers can upload product photos (`/products/{productId}/photos`), which synchronously generates low-resolution thumbnails (max 150px) on disk and stores normalized file paths in `product_photos`.
+- Anyone can view product details (`/view/product/{name}`), which returns full metadata, tags, and the high-resolution photo inlined directly as Base64 (`highResImage`).
+- Anyone can page through products (`/search/all`, `/search/trie/{prefix}`), which includes lightweight low-resolution thumbnails inlined directly as Base64 (`lowResImage`).
 - Duplicate names return HTTP 409 through the global exception handler.
 
 ### Orders
@@ -45,7 +46,7 @@ Login authenticates against three in-memory accounts and returns a JWT valid for
 | User | Password | Role | Primary capability |
 | --- | --- | --- | --- |
 | `Aryan` | `pass123` | `buyer` | Place orders |
-| `Aditya` | `pass123` | `seller` | Add products |
+| `Aditya` | `pass123` | `seller` | Add products and upload photos |
 | `DBA` | `pass123` | `admin` | No dedicated endpoint currently |
 
 The token signing key and these credentials are development-only values hard-coded in source. They must be externalized before any non-local use.
@@ -60,13 +61,27 @@ POST /add/product
   -> FacadeController
   -> FacadeService.addProduct
   -> ProductService checks name uniqueness and saves the product
-  -> 201 Created, with Location: view/product/{name}
+  -> PhotoService links seller to product in seller_products
+  -> 201 Created, with Location: /view/product/{name}
 ```
 
 Request body:
 
 ```json
 { "name": "Keyboard", "price": 2500, "stock": 10 }
+```
+
+### Upload a product photo
+
+```text
+POST /products/{productId}/photos
+  -> Security requires ROLE_seller
+  -> PhotoController
+  -> PhotoService verifies seller ownership in seller_products
+  -> Saves high-res photo to disk (./data/images/high_res/{uuid}.jpg)
+  -> Synchronously generates low-res thumbnail (max 150px) to disk (./data/images/low_res/{uuid}.jpg)
+  -> Inserts normalized record in product_photos (low_res_path, high_res_path, is_main)
+  -> 201 Created
 ```
 
 ### Place an order
@@ -90,14 +105,15 @@ Unless noted, protected calls need `Authorization: Bearer <JWT>`.
 | --- | --- | --- | --- |
 | `POST` | `/sign/` | Public | Authenticate and receive a JWT |
 | `GET` | `/sign/test` | Public | Simple authentication-area smoke endpoint |
-| `GET` | `/view/product/{name}` | Public | Get a product with HATEOAS `self` and `order` links |
-| `POST` | `/add/product` | Seller | Create a product |
+| `GET` | `/view/product/{name}` | Public | Get product details, tags, and inlined Base64 high-resolution photo (`highResImage`) |
+| `POST` | `/add/product` | Seller | Create a product and link seller ownership |
+| `POST` | `/products/{productId}/photos` | Seller | Upload product photo (multipart file, `isMain`); seller ownership required |
 | `POST` | `/order/product/{name}` | Buyer | Decrement stock and create an order |
 | `POST` | `/tags/{productId}/add?tag={name}` | Seller | Add a single tag to a product |
 | `POST` | `/tags/{productId}/upload` | Seller | Batch upload tags to a product |
 | `GET` | `/tags/{productId}` | Seller | List tags for a product |
-| `GET` | `/search/all?page=0&size=20` | Public | Page through product-name projections |
-| `GET` | `/search/trie/{prefix}?page=0&size=20` | Public | Case-insensitive prefix search of product names |
+| `GET` | `/search/all?page=0&size=20` | Public | Paginated product listing with inlined Base64 low-resolution thumbnails (`lowResImage`) |
+| `GET` | `/search/trie/{prefix}?page=0&size=20` | Public | Prefix search with inlined Base64 low-resolution thumbnails (`lowResImage`) |
 | `GET` | `/search/autocomplete/{prefix}` | Public | 4-Tier unified search (exact/fuzzy prefix, exact/fuzzy tags) |
 | `GET` | `/test/200` | Public | Basic controller smoke endpoint |
 
@@ -125,16 +141,25 @@ src/main/java/com/microservices/ecommerce/
 ├── ECommerceApplication.java             application bootstrap and scheduling
 ├── Controller/                           HTTP endpoints
 │   ├── FacadeController.java             product, search, and order endpoints
+│   ├── PhotoController.java              seller product photo upload endpoint
+│   ├── TagController.java                tag creation and batch upload endpoints
 │   ├── LoginController.java              JWT login endpoint
 │   └── TestController.java               basic test endpoint
 ├── Service/                              business operations
 │   ├── FacadeService.java                coordinates product and order services
-│   ├── ProductService.java               product persistence and stock updates
+│   ├── ProductService.java               product persistence, stock updates, pagination
+│   ├── PhotoService.java                 image resize, disk storage, Base64 retrieval
+│   ├── TagService.java                   tag management and relational division search
 │   └── OrderService.java                 order creation
-├── Model/                                JPA entities: Product and Order
+├── Model/                                JPA entities: Product, Order, Tag, SellerProduct, ProductPhoto
 ├── Repository/                           Spring Data JPA access
+│   ├── ProductsRepository.java
+│   ├── OrderRepository.java
+│   ├── TagRepository.java
+│   ├── SellerProductRepository.java
+│   └── ProductPhotoRepository.java
 ├── Configuration/Security/               JWT, filter-chain, and in-memory users
-├── RequestModels/                        login/product request shapes
+├── RequestModels/                        DTOs: ProductDetailDTO, ProductPageItemDTO, TagRequest
 ├── Projections/                          name-only product search response
 ├── Exception/                            product conflict exception
 ├── Autocomplete/                         router and trie-shard components
@@ -142,7 +167,10 @@ src/main/java/com/microservices/ecommerce/
 └── Later/                                commented-out future payment/notification stubs
 ```
 
-`FacadeController` delegates cross-service workflows to `FacadeService`. The facade's key responsibility is to invoke both `ProductService` and `OrderService` within a single transaction—for example, decrementing stock and creating an order atomically. This keeps orchestration out of the controller. The `ProductJSON` request model exists but is not yet used; the add endpoint receives the JPA `Product` entity directly.
+`FacadeController` delegates cross-service workflows to `FacadeService`, `ProductService`, `TagService`, and `PhotoService`. When browsing products via `/search/all` or `/search/trie/{prefix}`, the controller fetches low-resolution thumbnail bytes from disk and encodes them directly to Base64 in `ProductPageItemDTO`, allowing instant client-side rendering without secondary image requests. Similarly, `/view/product/{name}` delivers tags and the full high-resolution image inlined as Base64 in `ProductDetailDTO`.
+
+### Product Photos & Disk Storage
+Photo files are persisted on disk under `./data/images/high_res/` and `./data/images/low_res/`. Thumbnails are generated synchronously on upload, scaling proportionally to a max dimension of 150px using bilinear interpolation. The SQL table `product_photos` stores normalized metadata (`id`, `product_id`, `low_res_path`, `high_res_path`, `is_main`, `created_at`). Seller ownership is verified against `seller_products` before any photo upload is accepted.
 
 ### Autocomplete
 

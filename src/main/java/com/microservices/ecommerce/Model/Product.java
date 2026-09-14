@@ -39,6 +39,12 @@ public class Product {
     @EqualsAndHashCode.Exclude
     private Set<Tag> tags = new HashSet<>();
 
+    @OneToMany(mappedBy = "product", cascade = CascadeType.ALL, orphanRemoval = true)
+    @JsonIgnore
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
+    private Set<ProductPhoto> photos = new HashSet<>();
+
     //@JsonIgnore - not required for serializing at all
     //only required for deserializing
     @Version

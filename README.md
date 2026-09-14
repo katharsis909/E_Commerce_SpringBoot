@@ -11,6 +11,11 @@ first normalized character.
 
 - Product creation, lookup, prefix search, and orders.
 - JWT-based buyer and seller authorization.
+- Seller-product mapping table (`seller_products`) ensuring only the owning seller can upload photos.
+- Synchronous thumbnail generation on disk (`./data/images/low_res/`, max 150px) and original high-res storage (`./data/images/high_res/`).
+- Normalized SQL tracking (`product_photos`) separating disk storage from database metadata.
+- Inline Base64 image delivery: paginated search listings (`/search/all`, `/search/trie/{prefix}`) include lightweight `lowResImage` directly in the response body, eliminating extra round-trip HTTP requests.
+- Inline Base64 high-resolution photo (`highResImage`) and tags delivered directly in product detail view (`/view/product/{name}`).
 - MySQL-backed catalogue and order data (configurable via environment variables).
 - Optimistic locking on products.
 - In-memory autocomplete trie split into fixed first-letter shards.
@@ -111,13 +116,15 @@ There is no separate Node/React frontend project or build step.
 | Method | Endpoint | Purpose |
 | --- | --- | --- |
 | `POST` | `/sign/` | Log in and receive a JWT |
-| `POST` | `/add/product` | Add a product; seller role required |
-| `GET` | `/view/product/{name}` | View a product |
+| `POST` | `/add/product` | Add a product; seller role required (links seller in `seller_products`) |
+| `POST` | `/products/{productId}/photos` | Upload product photo (multipart file, `isMain`); seller ownership required |
+| `GET` | `/view/product/{name}` | View product details, tags, and inlined Base64 high-resolution photo (`highResImage`) |
 | `POST` | `/order/product/{name}` | Place an order; buyer role required |
 | `POST` | `/tags/{productId}/add?tag={name}` | Add a single tag to a product; seller role required |
 | `POST` | `/tags/{productId}/upload` | Batch upload multiple tags to a product; seller role required |
 | `GET` | `/tags/{productId}` | List tags for a product |
-| `GET` | `/search/trie/{prefix}` | Catalogue prefix search |
+| `GET` | `/search/all` | Paginated product listing with inlined Base64 low-resolution thumbnails (`lowResImage`) |
+| `GET` | `/search/trie/{prefix}` | Prefix search with inlined Base64 low-resolution thumbnails (`lowResImage`) |
 | `GET` | `/search/autocomplete/{prefix}` | 4-Tier unified search (exact/fuzzy prefix, exact/fuzzy tags) |
 
 For the detailed autocomplete design and future work, see

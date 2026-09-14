@@ -62,9 +62,9 @@ public class SecurityConfig
                 .requestMatchers("/view/product/**").permitAll()
                 .requestMatchers("/search/**").permitAll()
                 .requestMatchers("/order/**").hasRole("buyer")
-                .requestMatchers("/test/**").permitAll()
-                .requestMatchers("/add/product/**").hasRole("seller")
+                .requestMatchers("/add/product", "/add/product/**").hasRole("seller")
                 .requestMatchers("/tags/**").hasRole("seller")
+                .requestMatchers("/products/*/photos", "/products/*/photos/**").hasRole("seller")
                 //only for testing
                 // .anyRequest().permitAll()
                 )
